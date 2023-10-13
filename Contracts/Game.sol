@@ -38,12 +38,10 @@ contract GAME is ERC20, Ownable, ReentrancyGuard {
   
     event mintEvent(uint256 indexed _amount);
     function Mint(uint256 _amount) external onlyOwner {                
-      require(!paused, "Paused Contract");
-      require(msg.sender == guard, "Not Authorized.");              
-      require((_amount + totalSupply()) <= MAX_SUPPLY, "Max Mint Exceeded");
-      uint256 amount = _amount * 10 ** decimals();
+      require(!paused, "Paused Contract");  
+      uint256 amount = _amount * 10 ** decimals();         
+      require((amount + totalSupply()) <= MAX_SUPPLY, "Max Mint Exceeded");
         _mint(msg.sender, amount); 
-       TotalBurns += _amount;
        emit mintEvent(_amount);
     }
 
