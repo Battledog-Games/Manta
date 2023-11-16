@@ -15,8 +15,9 @@ interface IBattledog {
         uint256 history;
     }
 
-    function getPlayers() external view returns (Player[] memory);
+    function balanceOf(address _caller) external view returns (uint256);
     function getPlayerOwners(address _user) external returns (Player[] memory);
+    function ownerOf(uint256 _index) external view returns (address);
     function blacklisted(uint256 _index) external view returns (bool);
 }
 
@@ -45,7 +46,7 @@ contract ProofOfPlay is Ownable, ReentrancyGuard {
     mapping(uint256 => IBattledog.Player) public ActiveMiners;
     mapping(uint256 => Miner) public Collectors;
     mapping(uint256 => uint256) public MinerClaims;
-
+    mapping(uint256 => bool) private minerstate;
 
     struct Miner {
         string name;
@@ -78,37 +79,83 @@ contract ProofOfPlay is Ownable, ReentrancyGuard {
         require(msg.sender == guard, "Not authorized.");
         _;
     }
+function getMinerData() public nonReentrant {
+    uint256 total = IBattledog(battledogs).balanceOf(msg.sender);
+    IBattledog.Player[] memory players = IBattledog(battledogs).getPlayerOwners(msg.sender);
+    
+    for (uint256 i = 0; i < total; i++) {
+        uint256 tokenId = players[i].id;
 
-    function getMinerData() public nonReentrant {
-        IBattledog.Player[] memory players = IBattledog(battledogs).getPlayers();
-        activeMinersLength = players.length;
-
-        for (uint256 i = 0; i < players.length; i++) {
-            ActiveMiners[i] = players[i];
+        // Create a new instance of the Miner struct with the player's data
+        ActiveMiners[tokenId] = IBattledog.Player(
+            players[i].name,
+            players[i].id,
+            players[i].level,
+            players[i].attack,
+            players[i].defence,
+            players[i].fights,
+            players[i].wins,
+            players[i].payout,
+            players[i].activate,
+            players[i].history
+        );
+        
+        // Increment the activeMinersLength
+        if (!minerstate[tokenId]) {
+          activeMinersLength++;
         }
+
+        minerstate[tokenId] = true;
     }
+}
+
 
     function getActiveMiner(uint256 index) public view returns (IBattledog.Player memory) {
         require(index < activeMinersLength, "Index out of range.");
         return ActiveMiners[index];
     }
 
-    function getOwnerData(uint256 _tokenId) internal returns (bool) {        
-    // Get the Player structs owned by the msg.sender
-    IBattledog.Player[] memory owners = IBattledog(battledogs).getPlayerOwners(msg.sender);
-
-    // Iterate through the stored Player structs and compare the _tokenId with the id of each Player struct
-        for (uint256 i = 0; i < owners.length; i++) {
-            if (owners[i].id == _tokenId) {
+    function getOwnerData(uint256 _tokenId) internal view returns (bool) {        
+    // Get the token id owned by the msg.sender
+      address owner = IBattledog(battledogs).ownerOf(_tokenId);
+        // compare the _tokenId 
+        if (owner == msg.sender) {
                 return true;
-            }
-        }
-        return false;
+              }        
+          return false;
     }
 
     function mineGAME(uint256[] calldata _nfts) public nonReentrant {
-        // Require Contract isn't paused
-        require(!paused, "Paused Contract");
+    // Require Contract isn't paused
+    require(!paused, "Paused Contract");
+    // Populate the ActiveMiners array
+    uint256 total = IBattledog(battledogs).balanceOf(msg.sender);
+    IBattledog.Player[] memory players = IBattledog(battledogs).getPlayerOwners(msg.sender);
+    
+    for (uint256 i = 0; i < total; i++) {
+        uint256 tokenId = players[i].id;
+
+        // Create a new instance of the Miner struct with the player's data
+        ActiveMiners[tokenId] = IBattledog.Player(
+            players[i].name,
+            players[i].id,
+            players[i].level,
+            players[i].attack,
+            players[i].defence,
+            players[i].fights,
+            players[i].wins,
+            players[i].payout,
+            players[i].activate,
+            players[i].history
+        );
+        
+        // Increment the activeMinersLength
+        if (!minerstate[tokenId]) {
+          activeMinersLength++;
+        }
+
+        minerstate[tokenId] = true;
+    }
 
         for (uint256 a = 0; a < _nfts.length; a++) {
             uint256 tokenId = _nfts[a]; // // Current NFT id
@@ -118,13 +165,6 @@ contract ProofOfPlay is Ownable, ReentrancyGuard {
             require(MinerClaims[tokenId] + timeLock < block.timestamp, "Timelocked");
             // Require Miner is not on blacklist
             require(!IBattledog(battledogs).blacklisted(tokenId), "NFT Blacklisted");
-            // Reorganize ActiveMiners array
-            IBattledog.Player[] memory players = IBattledog(battledogs).getPlayers();
-            activeMinersLength = players.length;
-
-            for (uint256 i = 0; i < players.length; i++) {
-                      ActiveMiners[i] = players[i];
-                }
 
             // Check if the miner is activated
             if (ActiveMiners[tokenId].activate > 0) {
