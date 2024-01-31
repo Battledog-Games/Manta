@@ -8,13 +8,14 @@ contract LPHarvester is Ownable, ReentrancyGuard {
     IERC20 public GAMEToken;
     IERC20 public payToken;
     uint256 public totalRewards = 1;
-    uint256 public eralength = 86400;
+    uint256 public allRewardsOwed;
+    uint256 public eralength = 300;
     uint256 public totalClaimedRewards;
     uint256 public immutable startTime;
     uint256 public rewardPerStamp;
     uint256 public numberOfParticipants = 0;
-    uint256 public Duration = 604800;
-    uint256 public timeLock = 7200;
+    uint256 public Duration = 300;
+    uint256 public timeLock = 2;
     uint256 public TotalGAMESent = 1;
     uint256 public tax = 0;
     uint256 public TaxTotal = 0;
@@ -85,13 +86,13 @@ contract LPHarvester is Ownable, ReentrancyGuard {
         uint256 timeElapsed = block.timestamp - startTime; // time elapsed in secs        
         uint256 totalDaysElapsed = timeElapsed / eralength; //  total Days since deploy
 
-        uint256 daysElapsed = totalDaysElapsed - liveDays;// ensure uniform time across ERAs
+        uint256 daysElapsed = totalDaysElapsed - liveDays; // ensure uniformity by deducting days already recorded
 
         if (daysElapsed > 0) {
             liveDays += daysElapsed;
             for (uint256 i = 0; i < daysElapsed; i++) {
             // set rewards for each new ERA
-                eraRewards[ERA] = rewardPerStamp; //ERA++ or ERA + 1
+                eraRewards[ERA] = rewardPerStamp; // cumulative rate over a net 7 day period
             //increment Era
             ERA++;
             }
@@ -118,11 +119,12 @@ contract LPHarvester is Ownable, ReentrancyGuard {
         if (currentBalance == 0) {
             participants.push(msg.sender);
             numberOfParticipants += 1;
-        } else {
-            getClaim();
+         // set the era period for the user
+            claimData.eraAtBlock = ERA;
         }
+
+        getClaim();
     
-        claimData.eraAtBlock = ERA;
         claimData.GAMESent += amount;
         TotalGAMESent += amount;
         setRewards();
@@ -134,14 +136,14 @@ contract LPHarvester is Ownable, ReentrancyGuard {
     */
     function withdrawGAME() public nonReentrant onlyAfterTimelock {
         require(!paused, "Contract already paused.");
-        require(balances[msg.sender] > 0, "No GAME tokens to withdraw.");        
+        require(balances[msg.sender] > 0, "No GAME tokens to withdraw."); 
+        Claim storage claimData = claimRewards[msg.sender];       
         uint256 GAMEAmount = balances[msg.sender];
         require(GAMEToken.transfer(msg.sender, GAMEAmount), "Failed Transfer");    
 
         balances[msg.sender] = 0;
-        TotalGAMESent -= GAMEAmount;
-        Claim storage claimData = claimRewards[msg.sender];
         claimData.GAMESent = 0;
+        TotalGAMESent -= GAMEAmount;
 
        setRewards();
        setEra();
@@ -165,9 +167,15 @@ contract LPHarvester is Ownable, ReentrancyGuard {
     }
 
     function setRewards() internal {
-        totalRewards = payToken.balanceOf(address(this));
+        uint256 contract_balance = payToken.balanceOf(address(this));
+        // ensure rewards are equally disbursed
+        if (contract_balance > allRewardsOwed) {            
+            totalRewards = contract_balance - allRewardsOwed;
+        } else  {
+            totalRewards = 0;
+        }
         updateRewardPerStamp();        
-        eraRewards[ERA] = rewardPerStamp;
+        eraRewards[ERA] = rewardPerStamp;        
         emit RewardsUpdated(totalRewards);
     }
 
@@ -191,6 +199,8 @@ contract LPHarvester is Ownable, ReentrancyGuard {
                 }             
             }
             claimData.eraAtBlock = ERA;
+            uint256 rewardsDue = claimData.rewardsOwed / divisor;
+            allRewardsOwed += rewardsDue;
     }
 
     function updateRewardPerStamp() internal {
@@ -203,19 +213,28 @@ contract LPHarvester is Ownable, ReentrancyGuard {
         Claim storage claimData = claimRewards[msg.sender];
         if (claimData.eraAtBlock == ERA) {
         require(claimRewards[msg.sender].rewardsOwed > 0, "No rewards.");
-        } else {
+        } else {            
         getClaim(); 
         }
 
-        uint256 replenished = (claimData.rewardsOwed / 100) * replenishTax; 
-        uint256 estimatedRewards = claimData.rewardsOwed - replenished;
+        uint256 userRewards = claimData.rewardsOwed;
+
+        uint256 replenished = (userRewards / 100) * replenishTax; 
+        uint256 estimatedRewards = userRewards - replenished;
 
         uint256 rewards =  estimatedRewards / divisor;
         uint256 replenish = replenished / divisor;
         
         require(payToken.transfer(msg.sender, rewards), "Transfer failed."); 
-        require(payToken.transfer(battledogs, replenish), "Transfer failed.");       
+        require(payToken.transfer(battledogs, replenish), "Transfer failed."); 
+
+        //reset rewardsOwed      
         claimData.rewardsOwed = 0;
+
+        //deduct rewards owed to avoid double-spend
+        uint256 spentRewards = rewards + replenish;
+        allRewardsOwed -= spentRewards; 
+
         // Update the total rewards claimed by the user
         Claimants[msg.sender] += rewards;
         totalClaimedRewards += rewards;
@@ -238,7 +257,6 @@ contract LPHarvester is Ownable, ReentrancyGuard {
             require(GAMEToken.transfer(msg.sender, amount), "Transfer failed.");
             TaxTotal -= amount;
         }
-        setRewards();
     }
 
     function setDuration(uint256 _seconds) external onlyOwner {        
