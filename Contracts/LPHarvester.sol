@@ -9,13 +9,13 @@ contract LPHarvester is Ownable, ReentrancyGuard {
     IERC20 public payToken;
     uint256 public totalRewards = 1;
     uint256 public allRewardsOwed;
-    uint256 public eralength = 300;
+    uint256 public eralength = 86400;
     uint256 public totalClaimedRewards;
     uint256 public immutable startTime;
     uint256 public rewardPerStamp;
     uint256 public numberOfParticipants = 0;
-    uint256 public Duration = 300;
-    uint256 public timeLock = 2;
+    uint256 public Duration = 604800;
+    uint256 public timeLock = 7200; // 7200 
     uint256 public TotalGAMESent = 1;
     uint256 public tax = 0;
     uint256 public TaxTotal = 0;
